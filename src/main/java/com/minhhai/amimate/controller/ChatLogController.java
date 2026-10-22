@@ -3,7 +3,9 @@ package com.minhhai.amimate.controller;
 import com.minhhai.amimate.dto.response.ChatLogResponse;
 import com.minhhai.amimate.dto.request.CreateChatLogRequest;
 import com.minhhai.amimate.dto.response.PageResponse;
+import com.minhhai.amimate.dto.response.XiaozhiSyncResponse;
 import com.minhhai.amimate.service.ChatLogService;
+import com.minhhai.amimate.service.XiaozhiSyncService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,9 +16,13 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/logs")
 public class ChatLogController {
     private final ChatLogService chatLogService;
+    private final XiaozhiSyncService xiaozhiSyncService;
 
-    public ChatLogController(ChatLogService chatLogService) {
+    public ChatLogController(
+            ChatLogService chatLogService,
+            XiaozhiSyncService xiaozhiSyncService) {
         this.chatLogService = chatLogService;
+        this.xiaozhiSyncService = xiaozhiSyncService;
     }
 
     @PostMapping
@@ -33,5 +39,12 @@ public class ChatLogController {
                                                  @RequestParam(defaultValue = "0") int page,
                                                  @RequestParam(defaultValue = "50") int size) {
         return chatLogService.list(userId, deviceId, page, size);
+    }
+
+    @PostMapping("/sync-xiaozhi")
+    public XiaozhiSyncResponse syncXiaozhi(
+            @AuthenticationPrincipal Long userId,
+            @RequestParam String deviceId) {
+        return xiaozhiSyncService.sync(userId, deviceId);
     }
 }

@@ -12,6 +12,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 @Service
 public class ChatLogService {
     private static final int MAX_PAGE_SIZE = 100;
@@ -44,6 +46,36 @@ public class ChatLogService {
             return chatLogs.findByDeviceIdAndClientMessageId(deviceId, req.clientMessageId())
                     .map(l -> new SaveResult(l, false))
                     .orElseThrow(() -> e);
+        }
+    }
+
+    public boolean saveImported(
+            String deviceId,
+            String sessionId,
+            String clientMessageId,
+            String userMessage,
+            String botResponse,
+            Instant createdAt) {
+        if (chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId).isPresent()) {
+            return false;
+        }
+
+        ChatLog log = new ChatLog();
+        log.setDeviceId(deviceId);
+        log.setSessionId(sessionId);
+        log.setClientMessageId(clientMessageId);
+        log.setUserMessage(userMessage);
+        log.setBotResponse(botResponse);
+        log.setCreatedAt(createdAt);
+
+        try {
+            chatLogs.saveAndFlush(log);
+            return true;
+        } catch (DataIntegrityViolationException exception) {
+            if (chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId).isPresent()) {
+                return false;
+            }
+            throw exception;
         }
     }
 
