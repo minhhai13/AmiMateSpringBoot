@@ -1,6 +1,7 @@
 package com.minhhai.amimate.service;
 
 import com.minhhai.amimate.dto.response.ChatLogResponse;
+import com.minhhai.amimate.dto.response.ChatSessionResponse;
 import com.minhhai.amimate.dto.request.CreateChatLogRequest;
 import com.minhhai.amimate.dto.response.PageResponse;
 import com.minhhai.amimate.entity.ChatLog;
@@ -81,6 +82,16 @@ public class ChatLogService {
 
     @Transactional(readOnly = true)
     public PageResponse<ChatLogResponse> list(Long userId, String deviceId, int page, int size) {
+        return list(userId, deviceId, null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ChatLogResponse> list(
+            Long userId,
+            String deviceId,
+            String sessionId,
+            int page,
+            int size) {
         deviceService.requireOwned(userId, deviceId);
 
         int safePage = Math.max(page, 0);
@@ -89,10 +100,33 @@ public class ChatLogService {
         var pageable = PageRequest.of(safePage, safeSize,
                 Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id")));
 
-        Page<ChatLog> result = chatLogs.findByDeviceId(deviceId, pageable);
+        Page<ChatLog> result = sessionId == null
+                ? chatLogs.findByDeviceId(deviceId, pageable)
+                : chatLogs.findByDeviceIdAndSessionId(deviceId, sessionId, pageable);
 
         return new PageResponse<>(
                 result.getContent().stream().map(ChatLogResponse::from).toList(),
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.hasNext());
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ChatSessionResponse> listSessions(
+            Long userId,
+            String deviceId,
+            int page,
+            int size) {
+        deviceService.requireOwned(userId, deviceId);
+
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        var pageable = PageRequest.of(safePage, safeSize);
+        Page<ChatSessionResponse> result = chatLogs.findSessionsByDeviceId(deviceId, pageable);
+
+        return new PageResponse<>(
+                result.getContent(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.hasNext());
     }
 }

@@ -1,9 +1,12 @@
 package com.minhhai.amimate.service;
 
 import com.minhhai.amimate.exception.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
@@ -16,6 +19,7 @@ import java.util.List;
 
 @Component
 public class XiaozhiApiClient implements XiaozhiClient {
+    private static final Logger log = LoggerFactory.getLogger(XiaozhiApiClient.class);
     private static final String API_ERROR =
             "Không thể đồng bộ dữ liệu từ Xiaozhi. Vui lòng thử lại sau.";
     private static final int CHAT_PAGE_SIZE = 20;
@@ -80,19 +84,19 @@ public class XiaozhiApiClient implements XiaozhiClient {
 
             JsonNode root = requestPage(path, page, pageSize, chatId);
             if (root == null || !root.path("success").asBoolean(false)) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
+                throw invalidResponse("missing or false success flag", path, page);
             }
 
             JsonNode data = root.path("data");
             JsonNode items = data.path("list");
             JsonNode pagination = data.path("pagination");
             if (!items.isArray() || !pagination.path("totalPages").isNumber()) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
+                throw invalidResponse("unexpected list or pagination shape", path, page);
             }
 
             int reportedTotalPages = pagination.path("totalPages").asInt();
             if (reportedTotalPages < 0 || reportedTotalPages > MAX_PAGES) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
+                throw invalidResponse("totalPages outside supported range", path, page);
             }
             totalPages = Math.max(totalPages, reportedTotalPages);
             for (JsonNode item : items) {
@@ -122,13 +126,29 @@ public class XiaozhiApiClient implements XiaozhiClient {
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RestClientException exception) {
+            String status = exception instanceof RestClientResponseException responseException
+                    ? Integer.toString(responseException.getStatusCode().value())
+                    : "unavailable";
+            log.warn(
+                    "Xiaozhi API request failed: path={}, page={}, chatId={}, status={}, exceptionType={}",
+                    path,
+                    page,
+                    path.endsWith("/list") ? "n/a" : chatId,
+                    status,
+                    exception.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
         }
+    }
+
+    private static ApiException invalidResponse(String reason, String path, int page) {
+        log.warn("Unexpected Xiaozhi API response: path={}, page={}, reason={}", path, page, reason);
+        return new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
     }
 
     private static long requiredLong(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isNumber()) {
+            log.warn("Unexpected Xiaozhi API response field: field={}", field);
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
         }
         return value.asLong();
@@ -137,6 +157,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
     private static String requiredText(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || !value.isString() || value.asText().isBlank()) {
+            log.warn("Unexpected Xiaozhi API response field: field={}", field);
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
         }
         return value.asText();
@@ -148,6 +169,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
             return null;
         }
         if (!value.isString()) {
+            log.warn("Unexpected Xiaozhi API response field: field={}", field);
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
         }
         return value.asText();
@@ -157,6 +179,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
         try {
             return Instant.parse(requiredText(node, field));
         } catch (DateTimeParseException exception) {
+            log.warn("Unexpected Xiaozhi API timestamp: field={}", field);
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
         }
     }
