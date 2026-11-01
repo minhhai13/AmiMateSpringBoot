@@ -10,6 +10,7 @@ Robot dùng firmware `.bin` của xiaozhi.me và không gọi BE trực tiếp.
 | `JWT_SECRET`, `JWT_EXPIRATION_MINUTES` | JWT của app phụ huynh |
 | `ADMIN_SECRET` | Header `X-Admin-Secret` cho `POST /api/v1/devices/provision` |
 | `XIAOZHI_BEARER_TOKEN` | Token lấy từ xiaozhi.me, dùng để đọc chat của các agent |
+| `XIAOZHI_SYNC_COOLDOWN_SECONDS` | (tùy chọn, mặc định 30) khoảng cách tối thiểu giữa hai lần gọi Xiaozhi cho cùng một robot |
 
 ## Quy trình thêm robot mới
 1. Tạo agent trên xiaozhi.me, tải `.bin` và nạp vào robot; ghi lại `agentId`.

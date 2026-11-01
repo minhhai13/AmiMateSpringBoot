@@ -40,7 +40,7 @@ public class ChatLogService {
 
     public record ImportResult(int imported, int skipped) {}
 
-    public record SessionUpdate(String title, Integer remoteMsgCount) {}
+    public record SessionUpdate(String title, Integer remoteMsgCount, Long lastMessageId) {}
 
     /**
      * Ghi cả một chat trong một transaction: 1 SELECT + 1 saveAll thay vì mỗi tin nhắn một cặp truy vấn.
@@ -98,7 +98,8 @@ public class ChatLogService {
         updates.forEach((chatId, update) -> {
             String title = normalizeTitle(update.title());
             Integer count = update.remoteMsgCount();
-            if (title == null && count == null) {
+            Long lastMessageId = update.lastMessageId();
+            if (title == null && count == null && lastMessageId == null) {
                 return;
             }
             ChatSession session = existing.get(Long.toString(chatId));
@@ -115,6 +116,11 @@ public class ChatLogService {
             }
             if (count != null && !count.equals(session.getRemoteMsgCount())) {
                 session.setRemoteMsgCount(count);
+                dirty = true;
+            }
+            if (lastMessageId != null && (session.getLastMessageId() == null
+                    || lastMessageId > session.getLastMessageId())) {
+                session.setLastMessageId(lastMessageId);
                 dirty = true;
             }
             if (dirty) {
@@ -134,21 +140,34 @@ public class ChatLogService {
                 : title;
     }
 
-    /** chatId (Xiaozhi) -> msg_count đã đồng bộ; chat chưa đồng bộ tin nhắn thì không có trong map. */
+    /**
+     * synced: chatId (Xiaozhi) -> msg_count đã đồng bộ. hasUnsynced: còn chat đã biết nhưng chưa
+     * đồng bộ được tin nhắn (ví dụ lần trước bị lỗi), khi đó không được dừng sớm khi duyệt danh sách.
+     */
+    public record SyncState(
+            Map<Long, Integer> synced, Map<Long, Long> lastMessageIds, boolean hasUnsynced) {}
+
     @Transactional(readOnly = true)
-    public Map<Long, Integer> syncedMsgCounts(String deviceId) {
-        Map<Long, Integer> result = new HashMap<>();
+    public SyncState syncState(String deviceId) {
+        Map<Long, Integer> synced = new HashMap<>();
+        Map<Long, Long> lastMessageIds = new HashMap<>();
+        boolean hasUnsynced = false;
         for (ChatSession s : chatSessions.findByDeviceId(deviceId)) {
             if (s.getRemoteMsgCount() == null) {
+                hasUnsynced = true;
                 continue;
             }
             try {
-                result.put(Long.parseLong(s.getChatId()), s.getRemoteMsgCount());
+                long chatId = Long.parseLong(s.getChatId());
+                synced.put(chatId, s.getRemoteMsgCount());
+                if (s.getLastMessageId() != null) {
+                    lastMessageIds.put(chatId, s.getLastMessageId());
+                }
             } catch (NumberFormatException ignored) {
                 // chatId không phải số: không thuộc Xiaozhi, bỏ qua
             }
         }
-        return result;
+        return new SyncState(synced, lastMessageIds, hasUnsynced);
     }
 
     @Transactional(readOnly = true)

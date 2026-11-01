@@ -31,4 +31,8 @@ public class ChatSession {
     /** msg_count của Xiaozhi tại lần sync gần nhất thành công; null = chưa đồng bộ tin nhắn. */
     @Column(name = "remote_msg_count")
     private Integer remoteMsgCount;
+
+    /** id tin nhắn Xiaozhi cuối cùng đã được ghép vào log; lần sau chỉ tải các tin sau mốc này. */
+    @Column(name = "last_message_id")
+    private Long lastMessageId;
 }

@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 @Component
 public class XiaozhiApiClient implements XiaozhiClient {
@@ -40,35 +41,80 @@ public class XiaozhiApiClient implements XiaozhiClient {
     }
 
     @Override
-    public List<Chat> listAllChats(long agentId) {
+    public List<Chat> listRecentChats(long agentId, Predicate<Chat> alreadySynced) {
         return fetchAllPages(
                 "/api/chats/list",
                 CHAT_PAGE_SIZE,
                 agentId,
+                null,
                 node -> new Chat(
                         requiredLong(node, "id"),
                         summaryTitle(node),
-                        optionalInt(node, "msg_count")));
+                        optionalInt(node, "msg_count")),
+                page -> isNewestFirst(page) && page.stream().allMatch(alreadySynced));
+    }
+
+    private static boolean isNewestFirst(List<Chat> page) {
+        for (int i = 1; i < page.size(); i++) {
+            if (page.get(i - 1).id() <= page.get(i).id()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
     public List<Message> listAllMessages(long chatId) {
+        return fetchMessages(chatId, "asc", page -> false);
+    }
+
+    @Override
+    public List<Message> listMessagesAfter(long chatId, long afterMessageId) {
+        // Lấy từ mới nhất về cũ và dừng ngay khi chạm tin đã lưu.
+        List<Message> fetched = fetchMessages(
+                chatId, "desc",
+                page -> page.stream().anyMatch(m -> m.id() <= afterMessageId));
+        if (!isNewestFirstMessages(fetched)) {
+            // Xiaozhi không áp dụng order=desc: quay về lấy hết rồi lọc.
+            log.warn("Xiaozhi did not honour order=desc; falling back to a full fetch: chatId={}", chatId);
+            fetched = listAllMessages(chatId);
+        }
+        return fetched.stream()
+                .filter(m -> m.id() > afterMessageId)
+                .sorted(java.util.Comparator.comparingLong(Message::id))
+                .toList();
+    }
+
+    private List<Message> fetchMessages(long chatId, String order, Predicate<List<Message>> stopAfterPage) {
         return fetchAllPages(
                 "/api/chats/messages",
                 MESSAGE_PAGE_SIZE,
                 chatId,
+                order,
                 node -> new Message(
                         requiredLong(node, "id"),
                         requiredText(node, "role"),
                         optionalText(node, "content"),
-                        requiredInstant(node, "created_at")));
+                        requiredInstant(node, "created_at")),
+                stopAfterPage);
+    }
+
+    private static boolean isNewestFirstMessages(List<Message> messages) {
+        for (int i = 1; i < messages.size(); i++) {
+            if (messages.get(i - 1).id() <= messages.get(i).id()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private <T> List<T> fetchAllPages(
             String path,
             int pageSize,
             long id,
-            NodeMapper<T> mapper) {
+            String order,
+            NodeMapper<T> mapper,
+            Predicate<List<T>> stopAfterPage) {
         if (bearerToken == null || bearerToken.isBlank()) {
             throw new ApiException(
                     HttpStatus.SERVICE_UNAVAILABLE,
@@ -82,7 +128,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
                 throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
             }
 
-            JsonNode root = requestPage(path, page, pageSize, id);
+            JsonNode root = requestPage(path, page, pageSize, id, order);
             if (root == null || !root.path("success").asBoolean(false)) {
                 throw invalidResponse("missing or false success flag", path, page);
             }
@@ -99,14 +145,19 @@ public class XiaozhiApiClient implements XiaozhiClient {
                 throw invalidResponse("totalPages outside supported range", path, page);
             }
             totalPages = Math.max(totalPages, reportedTotalPages);
+            List<T> pageItems = new ArrayList<>();
             for (JsonNode item : items) {
-                result.add(mapper.map(item));
+                pageItems.add(mapper.map(item));
+            }
+            result.addAll(pageItems);
+            if (stopAfterPage.test(pageItems)) {
+                break;
             }
         }
         return List.copyOf(result);
     }
 
-    private JsonNode requestPage(String path, int page, int pageSize, long id) {
+    private JsonNode requestPage(String path, int page, int pageSize, long id, String order) {
         try {
             return restClient.get()
                     .uri(uriBuilder -> {
@@ -115,8 +166,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
                             builder.queryParam("agentId", id);
                         } else {
                             builder.queryParam("chatId", id)
-                                    .queryParam("includeTools", 1)
-                                    .queryParam("order", "asc");
+                                    .queryParam("order", order);
                         }
                         return builder.queryParam("page", page)
                                 .queryParam("pageSize", pageSize)

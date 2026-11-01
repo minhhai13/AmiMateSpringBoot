@@ -40,10 +40,10 @@ class ChatSummaryTest {
         when(sessions.findByDeviceId("2496934")).thenReturn(List.of(unchanged, outdated));
 
         service.upsertSessions("2496934", Map.of(
-                1L, new ChatLogService.SessionUpdate("Giữ nguyên", 4),
-                2L, new ChatLogService.SessionUpdate("  Học ngữ pháp  ", null),
-                3L, new ChatLogService.SessionUpdate("Phím tắt Excel", 7),
-                4L, new ChatLogService.SessionUpdate("   ", null)));
+                1L, new ChatLogService.SessionUpdate("Giữ nguyên", 4, null),
+                2L, new ChatLogService.SessionUpdate("  Học ngữ pháp  ", null, null),
+                3L, new ChatLogService.SessionUpdate("Phím tắt Excel", 7, null),
+                4L, new ChatLogService.SessionUpdate("   ", null, null)));
 
         List<ChatSession> saved = saved();
         assertEquals(2, saved.size());
@@ -59,17 +59,40 @@ class ChatSummaryTest {
         ChatSession existing = row("1", "Tiêu đề", null);
         when(sessions.findByDeviceId("2496934")).thenReturn(List.of(existing));
 
-        service.upsertSessions("2496934", Map.of(1L, new ChatLogService.SessionUpdate(null, 12)));
+        service.upsertSessions("2496934", Map.of(1L, new ChatLogService.SessionUpdate(null, 12, null)));
 
         assertEquals("Tiêu đề", existing.getSummary());
         assertEquals(12, existing.getRemoteMsgCount());
     }
 
     @Test
-    void syncedMsgCountsListsOnlyChatsWhoseMessagesWereSynced() {
+    void syncStateListsSyncedChatsAndFlagsUnsyncedOnes() {
         when(sessions.findByDeviceId("2496934")).thenReturn(List.of(
                 row("1", "A", 4), row("2", "B", null), row("abc", "C", 3)));
 
-        assertEquals(Map.of(1L, 4), service.syncedMsgCounts("2496934"));
+        var state = service.syncState("2496934");
+
+        assertEquals(Map.of(1L, 4), state.synced());
+        assertTrue(state.hasUnsynced());
+    }
+
+    @Test
+    void syncStateHasNoUnsyncedFlagWhenEverythingIsSynced() {
+        when(sessions.findByDeviceId("2496934")).thenReturn(List.of(row("1", "A", 4)));
+
+        assertFalse(service.syncState("2496934").hasUnsynced());
+    }
+
+    @Test
+    void lastMessageIdOnlyMovesForward() {
+        ChatSession existing = row("1", "T", 4);
+        existing.setLastMessageId(50L);
+        when(sessions.findByDeviceId("2496934")).thenReturn(List.of(existing));
+
+        service.upsertSessions("2496934", Map.of(1L, new ChatLogService.SessionUpdate(null, null, 40L)));
+        assertEquals(50L, existing.getLastMessageId());
+
+        service.upsertSessions("2496934", Map.of(1L, new ChatLogService.SessionUpdate(null, null, 60L)));
+        assertEquals(60L, existing.getLastMessageId());
     }
 }
