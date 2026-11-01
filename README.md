@@ -20,7 +20,7 @@ Robot dùng firmware `.bin` của xiaozhi.me và không gọi BE trực tiếp.
      -d '{"agentId":"2496934","name":"AmiMate"}'
    ```
 3. Phụ huynh nhập `agentId` + PIN trong app (`POST /api/v1/devices/claim`). Sai PIN 5 lần bị khóa 15 phút.
-4. `POST /api/v1/logs/sync-xiaozhi?deviceId=<agentId>` đồng bộ tăng dần: chỉ tải chat chưa có và chat đã lưu gần nhất.
+4. `POST /api/v1/logs/sync-xiaozhi?deviceId=<agentId>` đồng bộ tăng dần: chỉ tải chat chưa đồng bộ và chat mới nhất nếu `msg_count` đổi.
 
 ## Nâng cấp từ bản cũ
 ```sql

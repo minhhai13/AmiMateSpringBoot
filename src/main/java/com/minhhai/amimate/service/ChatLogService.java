@@ -4,8 +4,9 @@ import com.minhhai.amimate.dto.response.ChatLogResponse;
 import com.minhhai.amimate.dto.response.ChatSessionResponse;
 import com.minhhai.amimate.dto.response.PageResponse;
 import com.minhhai.amimate.entity.ChatLog;
+import com.minhhai.amimate.entity.ChatSession;
 import com.minhhai.amimate.repository.ChatLogRepository;
-import org.springframework.dao.DataIntegrityViolationException;
+import com.minhhai.amimate.repository.ChatSessionRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -13,74 +14,141 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class ChatLogService {
     private static final int MAX_PAGE_SIZE = 100;
     private final ChatLogRepository chatLogs;
+    private final ChatSessionRepository chatSessions;
     private final DeviceService deviceService;
 
-    public ChatLogService(ChatLogRepository chatLogs, DeviceService deviceService) {
+    public ChatLogService(
+            ChatLogRepository chatLogs,
+            ChatSessionRepository chatSessions,
+            DeviceService deviceService) {
         this.chatLogs = chatLogs;
+        this.chatSessions = chatSessions;
         this.deviceService = deviceService;
     }
 
-    public boolean saveImported(
-            String deviceId,
-            String sessionId,
-            String clientMessageId,
-            String userMessage,
-            String botResponse,
-            Instant createdAt) {
-        var existing = chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId);
-        if (existing.isPresent()) {
-            return completeBotResponse(existing.get(), botResponse);
-        }
+    public record ImportedLog(
+            String clientMessageId, String userMessage, String botResponse, Instant createdAt) {}
 
-        ChatLog log = new ChatLog();
-        log.setDeviceId(deviceId);
-        log.setSessionId(sessionId);
-        log.setClientMessageId(clientMessageId);
-        log.setUserMessage(userMessage);
-        log.setBotResponse(botResponse);
-        log.setCreatedAt(createdAt);
+    public record ImportResult(int imported, int skipped) {}
 
-        try {
-            chatLogs.saveAndFlush(log);
-            return true;
-        } catch (DataIntegrityViolationException exception) {
-            if (chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId).isPresent()) {
-                return false;
+    public record SessionUpdate(String title, Integer remoteMsgCount) {}
+
+    /**
+     * Ghi cả một chat trong một transaction: 1 SELECT + 1 saveAll thay vì mỗi tin nhắn một cặp truy vấn.
+     * Bản ghi đã có chỉ được bổ sung câu trả lời nếu lần trước mới chỉ có câu hỏi.
+     */
+    @Transactional
+    public ImportResult importChat(String deviceId, String chatId, List<ImportedLog> logs) {
+        Map<String, ChatLog> existing = new HashMap<>();
+        chatLogs.findByDeviceIdAndSessionId(deviceId, chatId)
+                .forEach(l -> existing.put(l.getClientMessageId(), l));
+
+        var toSave = new ArrayList<ChatLog>();
+        int imported = 0;
+        int skipped = 0;
+        for (ImportedLog item : logs) {
+            ChatLog current = existing.get(item.clientMessageId());
+            if (current == null) {
+                ChatLog log = new ChatLog();
+                log.setDeviceId(deviceId);
+                log.setSessionId(chatId);
+                log.setClientMessageId(item.clientMessageId());
+                log.setUserMessage(item.userMessage());
+                log.setBotResponse(item.botResponse());
+                log.setCreatedAt(item.createdAt());
+                existing.put(item.clientMessageId(), log);
+                toSave.add(log);
+                imported++;
+            } else if (current.getBotResponse() == null && item.botResponse() != null) {
+                current.setBotResponse(item.botResponse());
+                if (!toSave.contains(current)) {
+                    toSave.add(current);
+                }
+                imported++;
+            } else {
+                skipped++;
             }
-            throw exception;
         }
+        chatLogs.saveAll(toSave);
+        return new ImportResult(imported, skipped);
     }
 
-    /** Lần sync trước chỉ có câu hỏi; nếu giờ đã có câu trả lời thì bổ sung. */
-    private boolean completeBotResponse(ChatLog existing, String botResponse) {
-        if (existing.getBotResponse() == null && botResponse != null) {
-            existing.setBotResponse(botResponse);
-            chatLogs.save(existing);
-            return true;
+    /**
+     * Tạo hoặc cập nhật thông tin chat (tiêu đề, msg_count). Giá trị null/trống nghĩa là giữ nguyên;
+     * không tạo dòng mới nếu không có gì để ghi.
+     */
+    @Transactional
+    public void upsertSessions(String deviceId, Map<Long, SessionUpdate> updates) {
+        if (updates.isEmpty()) {
+            return;
         }
-        return false;
+        Map<String, ChatSession> existing = new HashMap<>();
+        chatSessions.findByDeviceId(deviceId).forEach(s -> existing.put(s.getChatId(), s));
+
+        var changed = new ArrayList<ChatSession>();
+        updates.forEach((chatId, update) -> {
+            String title = normalizeTitle(update.title());
+            Integer count = update.remoteMsgCount();
+            if (title == null && count == null) {
+                return;
+            }
+            ChatSession session = existing.get(Long.toString(chatId));
+            boolean dirty = false;
+            if (session == null) {
+                session = new ChatSession();
+                session.setDeviceId(deviceId);
+                session.setChatId(Long.toString(chatId));
+                dirty = true;
+            }
+            if (title != null && !title.equals(session.getSummary())) {
+                session.setSummary(title);
+                dirty = true;
+            }
+            if (count != null && !count.equals(session.getRemoteMsgCount())) {
+                session.setRemoteMsgCount(count);
+                dirty = true;
+            }
+            if (dirty) {
+                changed.add(session);
+            }
+        });
+        chatSessions.saveAll(changed);
     }
 
-    /** Các chatId (Xiaozhi) đã có log của robot này. */
+    private static String normalizeTitle(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String title = raw.strip();
+        return title.length() > ChatSession.MAX_SUMMARY_LENGTH
+                ? title.substring(0, ChatSession.MAX_SUMMARY_LENGTH)
+                : title;
+    }
+
+    /** chatId (Xiaozhi) -> msg_count đã đồng bộ; chat chưa đồng bộ tin nhắn thì không có trong map. */
     @Transactional(readOnly = true)
-    public Set<Long> knownChatIds(String deviceId) {
-        return chatLogs.findSessionIdsByDeviceId(deviceId).stream()
-                .map(id -> {
-                    try {
-                        return Long.parseLong(id);
-                    } catch (NumberFormatException e) {
-                        return null;
-                    }
-                })
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toSet());
+    public Map<Long, Integer> syncedMsgCounts(String deviceId) {
+        Map<Long, Integer> result = new HashMap<>();
+        for (ChatSession s : chatSessions.findByDeviceId(deviceId)) {
+            if (s.getRemoteMsgCount() == null) {
+                continue;
+            }
+            try {
+                result.put(Long.parseLong(s.getChatId()), s.getRemoteMsgCount());
+            } catch (NumberFormatException ignored) {
+                // chatId không phải số: không thuộc Xiaozhi, bỏ qua
+            }
+        }
+        return result;
     }
 
     @Transactional(readOnly = true)

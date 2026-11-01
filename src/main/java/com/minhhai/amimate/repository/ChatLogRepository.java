@@ -7,7 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
-import java.util.Optional;
 
 public interface ChatLogRepository extends JpaRepository<ChatLog, Long> {
     Page<ChatLog> findByDeviceId(String deviceId, Pageable pageable);
@@ -15,10 +14,12 @@ public interface ChatLogRepository extends JpaRepository<ChatLog, Long> {
 
     @Query(value = """
             select new com.minhhai.amimate.dto.response.ChatSessionResponse(
-                c.sessionId, max(c.createdAt), count(c))
+                c.sessionId, max(c.createdAt), count(c), s.summary)
             from ChatLog c
+            left join ChatSession s
+                on s.deviceId = c.deviceId and s.chatId = c.sessionId
             where c.deviceId = :deviceId
-            group by c.sessionId
+            group by c.sessionId, s.summary
             order by max(c.createdAt) desc
             """,
             countQuery = """
@@ -30,8 +31,5 @@ public interface ChatLogRepository extends JpaRepository<ChatLog, Long> {
             @Param("deviceId") String deviceId,
             Pageable pageable);
 
-    @Query("select distinct c.sessionId from ChatLog c where c.deviceId = :deviceId")
-    List<String> findSessionIdsByDeviceId(@Param("deviceId") String deviceId);
-
-    Optional<ChatLog> findByDeviceIdAndClientMessageId(String deviceId, String clientMessageId);
+    List<ChatLog> findByDeviceIdAndSessionId(String deviceId, String sessionId);
 }

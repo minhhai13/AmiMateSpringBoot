@@ -2,105 +2,154 @@ package com.minhhai.amimate.service;
 
 import com.minhhai.amimate.exception.ApiException;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class XiaozhiSyncServiceTest {
-    @Test
-    void importsUserAssistantPairsAndPreservesRemoteTimestamp() {
-        XiaozhiClient client = mock(XiaozhiClient.class);
-        DeviceService devices = mock(DeviceService.class);
-        ChatLogService logs = mock(ChatLogService.class);
-        Instant userTime = Instant.parse("2026-10-21T13:25:39Z");
-        Instant assistantTime = Instant.parse("2026-10-21T13:25:41Z");
-        when(client.listAllChats(2496934L)).thenReturn(List.of(new XiaozhiClient.Chat(88720701L)));
-        when(client.listAllMessages(88720701L)).thenReturn(List.of(
-                new XiaozhiClient.Message(3583508348L, "user", "Xin chào", userTime),
-                new XiaozhiClient.Message(3583508349L, "assistant", "Chào bạn nha!", assistantTime),
-                new XiaozhiClient.Message(3583508350L, "tool", "ignored", assistantTime),
-                new XiaozhiClient.Message(3583508351L, "user", "Tạm biệt", assistantTime)));
-        when(logs.saveImported(
-                anyString(), anyString(), anyString(), nullable(String.class),
-                nullable(String.class), any(Instant.class))).thenReturn(true);
+    private static final Instant T = Instant.parse("2026-10-21T13:25:39Z");
 
-        var response = new XiaozhiSyncService(client, devices, logs)
-                .sync(7L, "2496934");
+    private final XiaozhiClient client = mock(XiaozhiClient.class);
+    private final DeviceService devices = mock(DeviceService.class);
+    private final ChatLogService logs = mock(ChatLogService.class);
+    private final XiaozhiSyncService service = new XiaozhiSyncService(client, devices, logs);
+
+    private static XiaozhiClient.Chat chat(long id, int msgCount) {
+        return new XiaozhiClient.Chat(id, "Tiêu đề " + id, msgCount);
+    }
+
+    private void importReturns(int imported, int skipped) {
+        when(logs.importChat(anyString(), anyString(), anyList()))
+                .thenReturn(new ChatLogService.ImportResult(imported, skipped));
+    }
+
+    @Test
+    void pairsUserAndAssistantMessagesAndPreservesRemoteTimestamp() {
+        Instant assistantTime = Instant.parse("2026-10-21T13:25:41Z");
+        when(client.listAllChats(2496934L)).thenReturn(List.of(chat(88720701L, 5)));
+        when(client.listAllMessages(88720701L)).thenReturn(List.of(
+                new XiaozhiClient.Message(1L, "user", "Xin chào", T),
+                new XiaozhiClient.Message(2L, "assistant", "Chào bạn nha!", assistantTime),
+                new XiaozhiClient.Message(3L, "tool", "ignored", assistantTime),
+                new XiaozhiClient.Message(4L, "user", "Tạm biệt", assistantTime)));
+        importReturns(2, 0);
+
+        var response = service.sync(7L, "2496934");
 
         assertEquals(1, response.chatsFetched());
         assertEquals(4, response.messagesFetched());
         assertEquals(2, response.logsImported());
-        assertEquals(0, response.logsSkipped());
         verify(devices).requireOwned(7L, "2496934");
-        verify(logs).saveImported(
-                "2496934", "88720701", "xz-88720701-3583508348",
-                "Xin chào", "Chào bạn nha!", userTime);
-        verify(logs).saveImported(
-                "2496934", "88720701", "xz-88720701-3583508351",
-                "Tạm biệt", null, assistantTime);
-        verify(logs).knownChatIds("2496934");
-        verifyNoMoreInteractions(logs);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ChatLogService.ImportedLog>> captor = ArgumentCaptor.forClass(List.class);
+        verify(logs).importChat(eq("2496934"), eq("88720701"), captor.capture());
+        assertEquals(List.of(
+                new ChatLogService.ImportedLog("xz-88720701-1", "Xin chào", "Chào bạn nha!", T),
+                new ChatLogService.ImportedLog("xz-88720701-4", "Tạm biệt", null, assistantTime)),
+                captor.getValue());
+        // msg_count chỉ được ghi sau khi lưu tin nhắn
+        verify(logs).upsertSessions("2496934", Map.of(
+                88720701L, new ChatLogService.SessionUpdate(null, 5)));
     }
 
     @Test
     void refusesToCallXiaozhiForADeviceNotOwnedByTheUser() {
-        XiaozhiClient client = mock(XiaozhiClient.class);
-        DeviceService devices = mock(DeviceService.class);
-        ChatLogService logs = mock(ChatLogService.class);
         doThrow(new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Not found"))
                 .when(devices).requireOwned(7L, "111");
 
-        var service = new XiaozhiSyncService(client, devices, logs);
         assertThrows(ApiException.class, () -> service.sync(7L, "111"));
 
         verifyNoInteractions(client, logs);
     }
 
     @Test
-    void onlyFetchesNewChatsAndTheLatestKnownChat() {
-        XiaozhiClient client = mock(XiaozhiClient.class);
-        DeviceService devices = mock(DeviceService.class);
-        ChatLogService logs = mock(ChatLogService.class);
-        Instant t = Instant.parse("2026-10-21T13:25:39Z");
-        when(logs.knownChatIds("2496934")).thenReturn(Set.of(1L, 2L, 3L));
+    void fetchesNewChatsAndOnlyTheLatestSyncedChatWhenItsMessageCountChanged() {
+        when(logs.syncedMsgCounts("2496934")).thenReturn(Map.of(1L, 4, 2L, 6, 3L, 8));
         when(client.listAllChats(2496934L)).thenReturn(List.of(
-                new XiaozhiClient.Chat(4L), new XiaozhiClient.Chat(3L),
-                new XiaozhiClient.Chat(2L), new XiaozhiClient.Chat(1L)));
+                chat(4L, 2), chat(3L, 10), chat(2L, 6), chat(1L, 99)));
         when(client.listAllMessages(anyLong())).thenReturn(List.of(
-                new XiaozhiClient.Message(50L, "user", "Hi", t)));
+                new XiaozhiClient.Message(50L, "user", "Hi", T)));
+        importReturns(1, 0);
 
-        var response = new XiaozhiSyncService(client, devices, logs).sync(7L, "2496934");
+        var response = service.sync(7L, "2496934");
 
         assertEquals(2, response.chatsFetched());
         verify(client).listAllMessages(3L);
         verify(client).listAllMessages(4L);
         verify(client, never()).listAllMessages(2L);
-        verify(client, never()).listAllMessages(1L);
+        verify(client, never()).listAllMessages(1L); // chat cũ không đổi dù msg_count lệch
     }
 
     @Test
-    void countsPreviouslyImportedLogsAsSkipped() {
-        XiaozhiClient client = mock(XiaozhiClient.class);
-        DeviceService devices = mock(DeviceService.class);
-        ChatLogService logs = mock(ChatLogService.class);
-        Instant createdAt = Instant.parse("2026-10-21T13:25:39Z");
-        when(client.listAllChats(2496934L)).thenReturn(List.of(new XiaozhiClient.Chat(10L)));
-        when(client.listAllMessages(10L)).thenReturn(List.of(
-                new XiaozhiClient.Message(20L, "user", "Hello", createdAt)));
-        when(logs.saveImported(
-                anyString(), anyString(), anyString(), nullable(String.class),
-                nullable(String.class), any(Instant.class))).thenReturn(false);
+    void skipsTheLatestSyncedChatWhenMessageCountIsUnchanged() {
+        when(logs.syncedMsgCounts("2496934")).thenReturn(Map.of(3L, 8));
+        when(client.listAllChats(2496934L)).thenReturn(List.of(chat(3L, 8)));
 
-        var response = new XiaozhiSyncService(client, devices, logs)
-                .sync(7L, "2496934");
+        var response = service.sync(7L, "2496934");
 
-        assertEquals(0, response.logsImported());
-        assertEquals(1, response.logsSkipped());
+        assertEquals(0, response.chatsFetched());
+        verify(client, never()).listAllMessages(anyLong());
+        verify(logs, never()).importChat(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void emptyChatsAreMarkedSyncedWithoutFetchingMessages() {
+        when(client.listAllChats(2496934L)).thenReturn(List.of(chat(9L, 0)));
+        importReturns(0, 0);
+
+        service.sync(7L, "2496934");
+
+        verify(client, never()).listAllMessages(anyLong());
+        verify(logs).upsertSessions("2496934", Map.of(
+                9L, new ChatLogService.SessionUpdate(null, 0)));
+    }
+
+    @Test
+    void updatesTitlesForEveryChatEvenWhenMessagesAreNotFetched() {
+        when(logs.syncedMsgCounts("2496934")).thenReturn(Map.of(1L, 4, 2L, 6));
+        when(client.listAllChats(2496934L)).thenReturn(List.of(chat(2L, 6), chat(1L, 4)));
+
+        service.sync(7L, "2496934");
+
+        verify(logs).upsertSessions("2496934", Map.of(
+                2L, new ChatLogService.SessionUpdate("Tiêu đề 2", null),
+                1L, new ChatLogService.SessionUpdate("Tiêu đề 1", null)));
+    }
+
+    @Test
+    void doesNotMarkAChatSyncedWhenFetchingItsMessagesFails() {
+        when(client.listAllChats(2496934L)).thenReturn(List.of(chat(5L, 3)));
+        when(client.listAllMessages(5L))
+                .thenThrow(new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY, "x"));
+
+        assertThrows(ApiException.class, () -> service.sync(7L, "2496934"));
+
+        verify(logs, never()).upsertSessions(eq("2496934"),
+                eq(Map.of(5L, new ChatLogService.SessionUpdate(null, 3))));
+    }
+
+    @Test
+    void rejectsAConcurrentSyncOfTheSameDevice() throws Exception {
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        when(client.listAllChats(2496934L)).thenAnswer(invocation -> {
+            started.countDown();
+            release.await();
+            return List.of();
+        });
+
+        var first = java.util.concurrent.CompletableFuture.runAsync(() -> service.sync(7L, "2496934"));
+        started.await();
+        var ex = assertThrows(ApiException.class, () -> service.sync(7L, "2496934"));
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatus());
+        release.countDown();
+        first.join();
     }
 }

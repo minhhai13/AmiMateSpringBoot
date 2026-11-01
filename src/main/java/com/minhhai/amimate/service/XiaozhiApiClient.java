@@ -45,7 +45,10 @@ public class XiaozhiApiClient implements XiaozhiClient {
                 "/api/chats/list",
                 CHAT_PAGE_SIZE,
                 agentId,
-                node -> new Chat(requiredLong(node, "id")));
+                node -> new Chat(
+                        requiredLong(node, "id"),
+                        summaryTitle(node),
+                        optionalInt(node, "msg_count")));
     }
 
     @Override
@@ -126,6 +129,12 @@ public class XiaozhiApiClient implements XiaozhiClient {
             String status = exception instanceof RestClientResponseException responseException
                     ? Integer.toString(responseException.getStatusCode().value())
                     : "unavailable";
+            if (exception instanceof RestClientResponseException responseException
+                    && responseException.getStatusCode().value() == 401) {
+                log.warn("Xiaozhi API rejected the bearer token (401); it may have expired.");
+                throw new ApiException(HttpStatus.BAD_GATEWAY,
+                        "Token Xiaozhi không hợp lệ hoặc đã hết hạn. Vui lòng liên hệ quản trị viên.");
+            }
             log.warn(
                     "Xiaozhi API request failed: path={}, page={}, chatId={}, status={}, exceptionType={}",
                     path,
@@ -140,6 +149,24 @@ public class XiaozhiApiClient implements XiaozhiClient {
     private static ApiException invalidResponse(String reason, String path, int page) {
         log.warn("Unexpected Xiaozhi API response: path={}, page={}, reason={}", path, page, reason);
         return new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
+    }
+
+    /** chat_summary là object {"title": "..."}; chat đang diễn ra có thể chưa có. */
+    private static String summaryTitle(JsonNode node) {
+        JsonNode summary = node.get("chat_summary");
+        if (summary == null || summary.isNull()) {
+            return null;
+        }
+        if (summary.isString()) {
+            return summary.asText();
+        }
+        JsonNode title = summary.get("title");
+        return title != null && title.isString() ? title.asText() : null;
+    }
+
+    private static int optionalInt(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value != null && value.isNumber() ? value.asInt() : -1;
     }
 
     private static long requiredLong(JsonNode node, String field) {

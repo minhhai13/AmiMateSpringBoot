@@ -7,6 +7,7 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -20,14 +21,14 @@ class XiaozhiApiClientTest {
                         "https://xiaozhi.me/api/chats/list?agentId=2496934&page=1&pageSize=20"))
                 .andExpect(header("Authorization", "Bearer test-token"))
                 .andRespond(withSuccess("""
-                        {"success":true,"data":{"list":[{"id":101}],
+                        {"success":true,"data":{"list":[{"id":101,"msg_count":18,"chat_summary":{"title":"Học ngữ pháp tiếng Anh và phím tắt Excel"}}],
                         "pagination":{"totalPages":2}}}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo(
                         "https://xiaozhi.me/api/chats/list?agentId=2496934&page=2&pageSize=20"))
                 .andExpect(header("Authorization", "Bearer test-token"))
                 .andRespond(withSuccess("""
-                        {"success":true,"data":{"list":[{"id":102}],
+                        {"success":true,"data":{"list":[{"id":102,"chat_summary":null}],
                         "pagination":{"totalPages":2}}}
                         """, MediaType.APPLICATION_JSON));
 
@@ -37,6 +38,10 @@ class XiaozhiApiClientTest {
 
         assertEquals(2, chats.size());
         assertEquals(101L, chats.get(0).id());
+        assertEquals("Học ngữ pháp tiếng Anh và phím tắt Excel", chats.get(0).title());
+        assertEquals(18, chats.get(0).msgCount());
+        assertNull(chats.get(1).title());
+        assertEquals(-1, chats.get(1).msgCount());
         assertEquals(102L, chats.get(1).id());
         server.verify();
     }
