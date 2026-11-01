@@ -6,7 +6,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class XiaozhiSyncService {
@@ -26,7 +28,15 @@ public class XiaozhiSyncService {
     public XiaozhiSyncResponse sync(Long userId, String deviceId) {
         deviceService.requireOwned(userId, deviceId);
 
-        List<XiaozhiClient.Chat> chats = xiaozhiClient.listAllChats(parseAgentId(deviceId));
+        // Chỉ lấy tin nhắn của chat chưa có trong DB, cộng với chat đã lưu gần nhất
+        // (có thể còn đang diễn ra). Các chat cũ hơn coi như không đổi.
+        Set<Long> known = chatLogService.knownChatIds(deviceId);
+        long latestKnown = known.stream().mapToLong(Long::longValue).max().orElse(-1L);
+        List<XiaozhiClient.Chat> chats = xiaozhiClient.listAllChats(parseAgentId(deviceId)).stream()
+                .filter(chat -> !known.contains(chat.id()) || chat.id() == latestKnown)
+                .sorted(Comparator.comparingLong(XiaozhiClient.Chat::id))
+                .toList();
+
         int messagesFetched = 0;
         int imported = 0;
         int skipped = 0;

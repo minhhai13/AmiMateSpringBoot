@@ -3,33 +3,28 @@ package com.minhhai.amimate.service;
 import com.minhhai.amimate.entity.ChatLog;
 import com.minhhai.amimate.repository.ChatLogRepository;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
-import org.mockito.ArgumentCaptor;
 
 class ChatLogImportTest {
+    private final ChatLogRepository repository = mock(ChatLogRepository.class);
+    private final ChatLogService service = new ChatLogService(repository, mock(DeviceService.class));
+
     @Test
-    void savesSourceTimestampAndSkipsAnAlreadyImportedMessage() {
-        ChatLogRepository repository = mock(ChatLogRepository.class);
-        DeviceService deviceService = mock(DeviceService.class);
-        ChatLogService service = new ChatLogService(repository, deviceService);
+    void savesSourceTimestampForANewMessage() {
         Instant sourceTime = Instant.parse("2026-10-21T13:25:39Z");
         when(repository.findByDeviceIdAndClientMessageId("2496934", "xz-10-20"))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(new ChatLog()));
+                .thenReturn(Optional.empty());
         when(repository.saveAndFlush(any(ChatLog.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         assertTrue(service.saveImported(
-                "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
-        assertFalse(service.saveImported(
                 "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
 
         ArgumentCaptor<ChatLog> captor = ArgumentCaptor.forClass(ChatLog.class);
@@ -41,7 +36,32 @@ class ChatLogImportTest {
         assertEquals("Xin chào", saved.getUserMessage());
         assertEquals("Chào bạn", saved.getBotResponse());
         assertEquals(sourceTime, saved.getCreatedAt());
-        verify(repository, times(2))
-                .findByDeviceIdAndClientMessageId("2496934", "xz-10-20");
+    }
+
+    @Test
+    void skipsAnAlreadyImportedMessage() {
+        ChatLog existing = new ChatLog();
+        existing.setBotResponse("Chào bạn");
+        when(repository.findByDeviceIdAndClientMessageId("2496934", "xz-10-20"))
+                .thenReturn(Optional.of(existing));
+
+        assertFalse(service.saveImported(
+                "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", Instant.now()));
+
+        verify(repository, never()).save(any());
+        verify(repository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void fillsInBotResponseWhenPreviouslyOnlyTheQuestionWasStored() {
+        ChatLog existing = new ChatLog();
+        when(repository.findByDeviceIdAndClientMessageId("2496934", "xz-10-20"))
+                .thenReturn(Optional.of(existing));
+
+        assertTrue(service.saveImported(
+                "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", Instant.now()));
+
+        assertEquals("Chào bạn", existing.getBotResponse());
+        verify(repository).save(existing);
     }
 }

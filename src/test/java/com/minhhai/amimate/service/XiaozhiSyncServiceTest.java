@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -43,6 +44,7 @@ class XiaozhiSyncServiceTest {
         verify(logs).saveImported(
                 "2496934", "88720701", "xz-88720701-3583508351",
                 "Tạm biệt", null, assistantTime);
+        verify(logs).knownChatIds("2496934");
         verifyNoMoreInteractions(logs);
     }
 
@@ -58,6 +60,28 @@ class XiaozhiSyncServiceTest {
         assertThrows(ApiException.class, () -> service.sync(7L, "111"));
 
         verifyNoInteractions(client, logs);
+    }
+
+    @Test
+    void onlyFetchesNewChatsAndTheLatestKnownChat() {
+        XiaozhiClient client = mock(XiaozhiClient.class);
+        DeviceService devices = mock(DeviceService.class);
+        ChatLogService logs = mock(ChatLogService.class);
+        Instant t = Instant.parse("2026-10-21T13:25:39Z");
+        when(logs.knownChatIds("2496934")).thenReturn(Set.of(1L, 2L, 3L));
+        when(client.listAllChats(2496934L)).thenReturn(List.of(
+                new XiaozhiClient.Chat(4L), new XiaozhiClient.Chat(3L),
+                new XiaozhiClient.Chat(2L), new XiaozhiClient.Chat(1L)));
+        when(client.listAllMessages(anyLong())).thenReturn(List.of(
+                new XiaozhiClient.Message(50L, "user", "Hi", t)));
+
+        var response = new XiaozhiSyncService(client, devices, logs).sync(7L, "2496934");
+
+        assertEquals(2, response.chatsFetched());
+        verify(client).listAllMessages(3L);
+        verify(client).listAllMessages(4L);
+        verify(client, never()).listAllMessages(2L);
+        verify(client, never()).listAllMessages(1L);
     }
 
     @Test

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.util.List;
 import java.util.Optional;
 
 public interface ChatLogRepository extends JpaRepository<ChatLog, Long> {
@@ -28,6 +29,9 @@ public interface ChatLogRepository extends JpaRepository<ChatLog, Long> {
     Page<ChatSessionResponse> findSessionsByDeviceId(
             @Param("deviceId") String deviceId,
             Pageable pageable);
+
+    @Query("select distinct c.sessionId from ChatLog c where c.deviceId = :deviceId")
+    List<String> findSessionIdsByDeviceId(@Param("deviceId") String deviceId);
 
     Optional<ChatLog> findByDeviceIdAndClientMessageId(String deviceId, String clientMessageId);
 }

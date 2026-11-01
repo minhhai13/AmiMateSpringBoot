@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class ChatLogService {
@@ -32,8 +34,9 @@ public class ChatLogService {
             String userMessage,
             String botResponse,
             Instant createdAt) {
-        if (chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId).isPresent()) {
-            return false;
+        var existing = chatLogs.findByDeviceIdAndClientMessageId(deviceId, clientMessageId);
+        if (existing.isPresent()) {
+            return completeBotResponse(existing.get(), botResponse);
         }
 
         ChatLog log = new ChatLog();
@@ -53,6 +56,31 @@ public class ChatLogService {
             }
             throw exception;
         }
+    }
+
+    /** Lần sync trước chỉ có câu hỏi; nếu giờ đã có câu trả lời thì bổ sung. */
+    private boolean completeBotResponse(ChatLog existing, String botResponse) {
+        if (existing.getBotResponse() == null && botResponse != null) {
+            existing.setBotResponse(botResponse);
+            chatLogs.save(existing);
+            return true;
+        }
+        return false;
+    }
+
+    /** Các chatId (Xiaozhi) đã có log của robot này. */
+    @Transactional(readOnly = true)
+    public Set<Long> knownChatIds(String deviceId) {
+        return chatLogs.findSessionIdsByDeviceId(deviceId).stream()
+                .map(id -> {
+                    try {
+                        return Long.parseLong(id);
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                })
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     @Transactional(readOnly = true)
