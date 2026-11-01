@@ -26,7 +26,7 @@ public class XiaozhiSyncService {
     public XiaozhiSyncResponse sync(Long userId, String deviceId) {
         deviceService.requireOwned(userId, deviceId);
 
-        List<XiaozhiClient.Chat> chats = xiaozhiClient.listAllChats();
+        List<XiaozhiClient.Chat> chats = xiaozhiClient.listAllChats(parseAgentId(deviceId));
         int messagesFetched = 0;
         int imported = 0;
         int skipped = 0;
@@ -76,6 +76,14 @@ public class XiaozhiSyncService {
 
         return new XiaozhiSyncResponse(
                 deviceId, chats.size(), messagesFetched, imported, skipped);
+    }
+
+    private static long parseAgentId(String deviceId) {
+        try {
+            return Long.parseLong(deviceId);
+        } catch (NumberFormatException exception) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "ID robot không phải agentId Xiaozhi hợp lệ.");
+        }
     }
 
     private boolean save(

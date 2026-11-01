@@ -8,7 +8,7 @@ public interface XiaozhiClient {
 
     record Message(long id, String role, String content, Instant createdAt) {}
 
-    List<Chat> listAllChats();
+    List<Chat> listAllChats(long agentId);
 
     List<Message> listAllMessages(long chatId);
 }

@@ -2,14 +2,10 @@ package com.minhhai.amimate.controller;
 
 import com.minhhai.amimate.dto.response.ChatLogResponse;
 import com.minhhai.amimate.dto.response.ChatSessionResponse;
-import com.minhhai.amimate.dto.request.CreateChatLogRequest;
 import com.minhhai.amimate.dto.response.PageResponse;
 import com.minhhai.amimate.dto.response.XiaozhiSyncResponse;
 import com.minhhai.amimate.service.ChatLogService;
 import com.minhhai.amimate.service.XiaozhiSyncService;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,14 +20,6 @@ public class ChatLogController {
             XiaozhiSyncService xiaozhiSyncService) {
         this.chatLogService = chatLogService;
         this.xiaozhiSyncService = xiaozhiSyncService;
-    }
-
-    @PostMapping
-    public ResponseEntity<ChatLogResponse> createLog(@AuthenticationPrincipal String deviceId,
-                                                     @Valid @RequestBody CreateChatLogRequest req) {
-        var result = chatLogService.save(deviceId, req);
-        HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
-        return ResponseEntity.status(status).body(ChatLogResponse.from(result.log()));
     }
 
     @GetMapping

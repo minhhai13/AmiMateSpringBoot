@@ -31,9 +31,9 @@ class XiaozhiApiClientTest {
                         "pagination":{"totalPages":2}}}
                         """, MediaType.APPLICATION_JSON));
 
-        var client = new XiaozhiApiClient(builder, JsonMapper.builder().build(), "test-token", 2496934L);
+        var client = new XiaozhiApiClient(builder, JsonMapper.builder().build(), "test-token");
 
-        var chats = client.listAllChats();
+        var chats = client.listAllChats(2496934L);
 
         assertEquals(2, chats.size());
         assertEquals(101L, chats.get(0).id());
@@ -64,7 +64,7 @@ class XiaozhiApiClientTest {
                         ],"pagination":{"totalPages":2}}}
                         """, MediaType.APPLICATION_JSON));
 
-        var client = new XiaozhiApiClient(builder, JsonMapper.builder().build(), "test-token", 2496934L);
+        var client = new XiaozhiApiClient(builder, JsonMapper.builder().build(), "test-token");
 
         var messages = client.listAllMessages(88720701L);
 

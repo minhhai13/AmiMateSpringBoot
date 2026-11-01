@@ -29,25 +29,22 @@ public class XiaozhiApiClient implements XiaozhiClient {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final String bearerToken;
-    private final long agentId;
 
     public XiaozhiApiClient(
             RestClient.Builder restClientBuilder,
             ObjectMapper objectMapper,
-            @Value("${xiaozhi.api.bearer-token:}") String bearerToken,
-            @Value("${xiaozhi.api.agent-id:2496934}") long agentId) {
+            @Value("${xiaozhi.api.bearer-token:}") String bearerToken) {
         this.restClient = restClientBuilder.baseUrl("https://xiaozhi.me").build();
         this.objectMapper = objectMapper;
         this.bearerToken = bearerToken;
-        this.agentId = agentId;
     }
 
     @Override
-    public List<Chat> listAllChats() {
+    public List<Chat> listAllChats(long agentId) {
         return fetchAllPages(
                 "/api/chats/list",
                 CHAT_PAGE_SIZE,
-                0,
+                agentId,
                 node -> new Chat(requiredLong(node, "id")));
     }
 
@@ -67,7 +64,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
     private <T> List<T> fetchAllPages(
             String path,
             int pageSize,
-            long chatId,
+            long id,
             NodeMapper<T> mapper) {
         if (bearerToken == null || bearerToken.isBlank()) {
             throw new ApiException(
@@ -82,7 +79,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
                 throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);
             }
 
-            JsonNode root = requestPage(path, page, pageSize, chatId);
+            JsonNode root = requestPage(path, page, pageSize, id);
             if (root == null || !root.path("success").asBoolean(false)) {
                 throw invalidResponse("missing or false success flag", path, page);
             }
@@ -106,15 +103,15 @@ public class XiaozhiApiClient implements XiaozhiClient {
         return List.copyOf(result);
     }
 
-    private JsonNode requestPage(String path, int page, int pageSize, long chatId) {
+    private JsonNode requestPage(String path, int page, int pageSize, long id) {
         try {
             return restClient.get()
                     .uri(uriBuilder -> {
                         var builder = uriBuilder.path(path);
                         if (path.endsWith("/list")) {
-                            builder.queryParam("agentId", agentId);
+                            builder.queryParam("agentId", id);
                         } else {
-                            builder.queryParam("chatId", chatId)
+                            builder.queryParam("chatId", id)
                                     .queryParam("includeTools", 1)
                                     .queryParam("order", "asc");
                         }
@@ -133,7 +130,7 @@ public class XiaozhiApiClient implements XiaozhiClient {
                     "Xiaozhi API request failed: path={}, page={}, chatId={}, status={}, exceptionType={}",
                     path,
                     page,
-                    path.endsWith("/list") ? "n/a" : chatId,
+                    path.endsWith("/list") ? "n/a" : id,
                     status,
                     exception.getClass().getSimpleName());
             throw new ApiException(HttpStatus.BAD_GATEWAY, API_ERROR);

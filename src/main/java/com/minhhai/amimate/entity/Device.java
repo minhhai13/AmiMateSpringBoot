@@ -9,8 +9,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "device",
         uniqueConstraints = {
-                @UniqueConstraint(name = "UQ_device_device_id", columnNames = "device_id"),
-                @UniqueConstraint(name = "UQ_device_api_key_hash", columnNames = "api_key_hash")
+                @UniqueConstraint(name = "UQ_device_device_id", columnNames = "device_id")
         },
         indexes = @Index(name = "IX_device_owner", columnList = "owner_id"))
 @Getter
@@ -26,9 +25,6 @@ public class Device {
 
     @Column(name = "name", length = 100)
     private String name;
-
-    @Column(name = "api_key_hash", nullable = false, length = 64)
-    private String apiKeyHash;
 
     @Column(name = "owner_id")
     private Long ownerId;

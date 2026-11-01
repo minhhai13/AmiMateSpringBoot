@@ -1,6 +1,7 @@
 package com.minhhai.amimate.controller;
 
-import com.minhhai.amimate.dto.response.DeviceGeneratedResponse;
+import com.minhhai.amimate.dto.request.ProvisionDeviceRequest;
+import com.minhhai.amimate.dto.response.DeviceProvisionedResponse;
 import com.minhhai.amimate.dto.request.ClaimDeviceRequest;
 import com.minhhai.amimate.dto.response.DeviceResponse;
 import com.minhhai.amimate.exception.ApiException;
@@ -11,6 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.annotation.Value;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 
 @RestController
@@ -18,24 +21,26 @@ import java.util.List;
 public class DeviceController {
     private final DeviceService deviceService;
 
-    @Value("${amimate.factory.secret}")
-    private String factorySecret;
+    @Value("${amimate.admin.secret}")
+    private String adminSecret;
 
     public DeviceController(DeviceService deviceService) {
         this.deviceService = deviceService;
     }
 
-    @PostMapping("/factory/generate")
-    public ResponseEntity<DeviceGeneratedResponse> generateForFactory(
-            @RequestHeader(value = "X-Factory-Secret", required = false) String secretHeader,
-            @RequestParam(required = false) String name) {
+    @PostMapping("/provision")
+    public ResponseEntity<DeviceProvisionedResponse> provision(
+            @RequestHeader(value = "X-Admin-Secret", required = false) String secretHeader,
+            @Valid @RequestBody ProvisionDeviceRequest req) {
 
-        if (secretHeader == null || !secretHeader.equals(factorySecret)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Sai Factory Secret. Từ chối truy cập!");
+        if (secretHeader == null || !MessageDigest.isEqual(
+                secretHeader.getBytes(StandardCharsets.UTF_8),
+                adminSecret.getBytes(StandardCharsets.UTF_8))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "Sai Admin Secret. Từ chối truy cập!");
         }
 
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(deviceService.generateDeviceForFactory(name));
+                .body(deviceService.provision(req.agentId(), req.name()));
     }
 
     @PostMapping("/claim")

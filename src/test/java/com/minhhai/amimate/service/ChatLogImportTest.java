@@ -21,27 +21,27 @@ class ChatLogImportTest {
         DeviceService deviceService = mock(DeviceService.class);
         ChatLogService service = new ChatLogService(repository, deviceService);
         Instant sourceTime = Instant.parse("2026-10-21T13:25:39Z");
-        when(repository.findByDeviceIdAndClientMessageId("AMI-ABC123", "xz-10-20"))
+        when(repository.findByDeviceIdAndClientMessageId("2496934", "xz-10-20"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(new ChatLog()));
         when(repository.saveAndFlush(any(ChatLog.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         assertTrue(service.saveImported(
-                "AMI-ABC123", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
+                "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
         assertFalse(service.saveImported(
-                "AMI-ABC123", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
+                "2496934", "10", "xz-10-20", "Xin chào", "Chào bạn", sourceTime));
 
         ArgumentCaptor<ChatLog> captor = ArgumentCaptor.forClass(ChatLog.class);
         verify(repository).saveAndFlush(captor.capture());
         ChatLog saved = captor.getValue();
-        assertEquals("AMI-ABC123", saved.getDeviceId());
+        assertEquals("2496934", saved.getDeviceId());
         assertEquals("10", saved.getSessionId());
         assertEquals("xz-10-20", saved.getClientMessageId());
         assertEquals("Xin chào", saved.getUserMessage());
         assertEquals("Chào bạn", saved.getBotResponse());
         assertEquals(sourceTime, saved.getCreatedAt());
         verify(repository, times(2))
-                .findByDeviceIdAndClientMessageId("AMI-ABC123", "xz-10-20");
+                .findByDeviceIdAndClientMessageId("2496934", "xz-10-20");
     }
 }

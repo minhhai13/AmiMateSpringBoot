@@ -2,7 +2,6 @@ package com.minhhai.amimate.service;
 
 import com.minhhai.amimate.dto.response.ChatLogResponse;
 import com.minhhai.amimate.dto.response.ChatSessionResponse;
-import com.minhhai.amimate.dto.request.CreateChatLogRequest;
 import com.minhhai.amimate.dto.response.PageResponse;
 import com.minhhai.amimate.entity.ChatLog;
 import com.minhhai.amimate.repository.ChatLogRepository;
@@ -24,30 +23,6 @@ public class ChatLogService {
     public ChatLogService(ChatLogRepository chatLogs, DeviceService deviceService) {
         this.chatLogs = chatLogs;
         this.deviceService = deviceService;
-    }
-
-    public record SaveResult(ChatLog log, boolean created) {}
-
-    public SaveResult save(String deviceId, CreateChatLogRequest req) {
-        var existing = chatLogs.findByDeviceIdAndClientMessageId(deviceId, req.clientMessageId());
-        if (existing.isPresent()) {
-            return new SaveResult(existing.get(), false);
-        }
-
-        ChatLog log = new ChatLog();
-        log.setDeviceId(deviceId);
-        log.setSessionId(req.sessionId());
-        log.setClientMessageId(req.clientMessageId());
-        log.setUserMessage(req.userMessage());
-        log.setBotResponse(req.botResponse());
-
-        try {
-            return new SaveResult(chatLogs.save(log), true);
-        } catch (DataIntegrityViolationException e) {
-            return chatLogs.findByDeviceIdAndClientMessageId(deviceId, req.clientMessageId())
-                    .map(l -> new SaveResult(l, false))
-                    .orElseThrow(() -> e);
-        }
     }
 
     public boolean saveImported(

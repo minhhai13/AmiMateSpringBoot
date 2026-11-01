@@ -19,7 +19,7 @@ class XiaozhiSyncServiceTest {
         ChatLogService logs = mock(ChatLogService.class);
         Instant userTime = Instant.parse("2026-10-21T13:25:39Z");
         Instant assistantTime = Instant.parse("2026-10-21T13:25:41Z");
-        when(client.listAllChats()).thenReturn(List.of(new XiaozhiClient.Chat(88720701L)));
+        when(client.listAllChats(2496934L)).thenReturn(List.of(new XiaozhiClient.Chat(88720701L)));
         when(client.listAllMessages(88720701L)).thenReturn(List.of(
                 new XiaozhiClient.Message(3583508348L, "user", "Xin chào", userTime),
                 new XiaozhiClient.Message(3583508349L, "assistant", "Chào bạn nha!", assistantTime),
@@ -30,18 +30,18 @@ class XiaozhiSyncServiceTest {
                 nullable(String.class), any(Instant.class))).thenReturn(true);
 
         var response = new XiaozhiSyncService(client, devices, logs)
-                .sync(7L, "AMI-ABC123");
+                .sync(7L, "2496934");
 
         assertEquals(1, response.chatsFetched());
         assertEquals(4, response.messagesFetched());
         assertEquals(2, response.logsImported());
         assertEquals(0, response.logsSkipped());
-        verify(devices).requireOwned(7L, "AMI-ABC123");
+        verify(devices).requireOwned(7L, "2496934");
         verify(logs).saveImported(
-                "AMI-ABC123", "88720701", "xz-88720701-3583508348",
+                "2496934", "88720701", "xz-88720701-3583508348",
                 "Xin chào", "Chào bạn nha!", userTime);
         verify(logs).saveImported(
-                "AMI-ABC123", "88720701", "xz-88720701-3583508351",
+                "2496934", "88720701", "xz-88720701-3583508351",
                 "Tạm biệt", null, assistantTime);
         verifyNoMoreInteractions(logs);
     }
@@ -52,10 +52,10 @@ class XiaozhiSyncServiceTest {
         DeviceService devices = mock(DeviceService.class);
         ChatLogService logs = mock(ChatLogService.class);
         doThrow(new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "Not found"))
-                .when(devices).requireOwned(7L, "AMI-OTHER");
+                .when(devices).requireOwned(7L, "111");
 
         var service = new XiaozhiSyncService(client, devices, logs);
-        assertThrows(ApiException.class, () -> service.sync(7L, "AMI-OTHER"));
+        assertThrows(ApiException.class, () -> service.sync(7L, "111"));
 
         verifyNoInteractions(client, logs);
     }
@@ -66,7 +66,7 @@ class XiaozhiSyncServiceTest {
         DeviceService devices = mock(DeviceService.class);
         ChatLogService logs = mock(ChatLogService.class);
         Instant createdAt = Instant.parse("2026-10-21T13:25:39Z");
-        when(client.listAllChats()).thenReturn(List.of(new XiaozhiClient.Chat(10L)));
+        when(client.listAllChats(2496934L)).thenReturn(List.of(new XiaozhiClient.Chat(10L)));
         when(client.listAllMessages(10L)).thenReturn(List.of(
                 new XiaozhiClient.Message(20L, "user", "Hello", createdAt)));
         when(logs.saveImported(
@@ -74,7 +74,7 @@ class XiaozhiSyncServiceTest {
                 nullable(String.class), any(Instant.class))).thenReturn(false);
 
         var response = new XiaozhiSyncService(client, devices, logs)
-                .sync(7L, "AMI-ABC123");
+                .sync(7L, "2496934");
 
         assertEquals(0, response.logsImported());
         assertEquals(1, response.logsSkipped());
